@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Admin Panel</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:#f0f2f5;color:#333;padding:16px}
+        .header{background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:20px;border-radius:12px;margin-bottom:20px}
+        .tabs{display:flex;gap:8px;margin-bottom:20px;background:white;padding:8px;border-radius:12px;overflow-x:auto}
+        .tab{padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600;white-space:nowrap;font-size:14px}
+        .tab.active{background:#667eea;color:white}
+        .card{background:white;border-radius:12px;padding:16px;margin-bottom:16px}
+        .form-group{margin-bottom:12px}
+        label{display:block;margin-bottom:4px;font-weight:600;font-size:14px}
+        input,textarea,select{width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:8px;font-size:16px}
+        .btn{padding:10px 20px;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px}
+        .btn-primary{background:#667eea;color:white}
+        .btn-danger{background:#ff4444;color:white}
+        .list-item{background:#f8f9fa;padding:12px;border-radius:8px;margin-bottom:8px;border-left:4px solid #667eea}
+    </style>
+</head>
+<body>
+    <div class="header"><h1>⚙️ Admin Panel</h1></div>
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('products')">📦 ទំនិញ</div>
+        <div class="tab" onclick="switchTab('orders')">📋 ការបញ្ជាទិញ</div>
+        <div class="tab" onclick="switchTab('vouchers')">🎫 វ៉ូឆ័រ</div>
+    </div>
+    <div id="tab-content"></div>
+
+    <script>
+        const API='https://YOUR_RENDER_SERVICE.onrender.com'; // ប្តូរ
+        
+        async function loadProducts(){
+            const r=await fetch(API+'/api/products');const products=await r.json();
+            document.getElementById('tab-content').innerHTML=`
+                <div class="card">
+                    <h3>បន្ថែមទំនិញ</h3>
+                    <form onsubmit="addProduct(event)">
+                        <div class="form-group"><label>ឈ្មោះ</label><input type="text" id="p-name" required></div>
+                        <div class="form-group"><label>ការពណ៌នា</label><textarea id="p-desc" rows="2"></textarea></div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                            <div class="form-group"><label>តម្លៃ (USD)</label><input type="number" id="p-price" step="0.01" required></div>
+                            <div class="form-group"><label>តម្លៃ (Stars)</label><input type="number" id="p-stars" required></div>
+                        </div>
+                        <div class="form-group"><label>URL រូបភាព</label><input type="url" id="p-image"></div>
+                        <div class="form-group"><label>ចំនួនក្នុងស្តុក</label><input type="number" id="p-stock" value="0"></div>
+                        <div class="form-group"><label>ប្រភេទ</label><input type="text" id="p-category" value="General"></div>
+                        <button type="submit" class="btn btn-primary">បន្ថែមទំនិញ</button>
+                    </form>
+                </div>
+                <div class="card"><h3>បញ្ជីទំនិញ</h3>${products.map(p=>`<div class="list-item"><strong>${p.name}</strong> - $${p.price} (${p.stars_price}⭐) - ស្តុក: ${p.stock} <button class="btn btn-danger" style="float:right" onclick="deleteProduct(${p.id})">លុប</button></div>`).join('')}</div>`;
+        }
+        async function addProduct(e){
+            e.preventDefault();
+            const product={name:document.getElementById('p-name').value,description:document.getElementById('p-desc').value,price:parseFloat(document.getElementById('p-price').value),stars_price:parseInt(document.getElementById('p-stars').value),image_url:document.getElementById('p-image').value,stock:parseInt(document.getElementById('p-stock').value),category:document.getElementById('p-category').value};
+            await fetch(API+'/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(product)});
+            alert('✅ បានបន្ថែម!');loadProducts();
+        }
+        async function deleteProduct(id){if(confirm('លុប?')){await fetch(API+'/api/products/'+id,{method:'DELETE'});loadProducts();}}
+        async function loadOrders(){
+            const r=await fetch(API+'/api/orders');const orders=await r.json();
+            document.getElementById('tab-content').innerHTML=`<div class="card"><h3>ការបញ្ជាទិញ</h3>${orders.map(o=>`<div class="list-item"><strong>#${o.id}</strong> - ${o.first_name} - $${o.total_amount.toFixed(2)} - ${o.status}</div>`).join('')}</div>`;
+        }
+        async function loadVouchers(){
+            const r=await fetch(API+'/api/vouchers');const vouchers=await r.json();
+            document.getElementById('tab-content').innerHTML=`
+                <div class="card">
+                    <h3>បង្កើតវ៉ូឆ័រ</h3>
+                    <form onsubmit="createVoucher(event)">
+                        <div class="form-group"><label>កូដ</label><input type="text" id="v-code" required></div>
+                        <div class="form-group"><label>បញ្ចុះតម្លៃ (%)</label><input type="number" id="v-percent" min="0" max="100"></div>
+                        <button type="submit" class="btn btn-primary">បង្កើត</button>
+                    </form>
+                </div>
+                <div class="card"><h3>វ៉ូឆ័រទាំងអស់</h3>${vouchers.map(v=>`<div class="list-item"><strong>${v.code}</strong> - បញ្ចុះ ${v.discount_percent||v.discount_amount}${v.discount_percent?'%':'$'}</div>`).join('')}</div>`;
+        }
+        async function createVoucher(e){
+            e.preventDefault();
+            await fetch(API+'/api/vouchers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:document.getElementById('v-code').value,discount_percent:parseInt(document.getElementById('v-percent').value)||null,max_uses:100})});
+            alert('✅ បានបង្កើត!');loadVouchers();
+        }
+        function switchTab(tab){
+            document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+            event.target.classList.add('active');
+            if(tab==='products')loadProducts();
+            else if(tab==='orders')loadOrders();
+            else if(tab==='vouchers')loadVouchers();
+        }
+        loadProducts();
+    </script>
+</body>
+</html>
