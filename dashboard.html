@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Dashboard</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:#f0f2f5;color:#333;padding:16px}
+        .header{background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:24px;border-radius:16px;margin-bottom:20px}
+        .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+        .stat-card{background:white;padding:16px;border-radius:12px}
+        .stat-val{font-size:28px;font-weight:bold;color:#667eea}
+        .order-card{background:white;border-radius:12px;padding:16px;margin-bottom:12px}
+        .status-paid{background:#4CAF50;color:white;padding:4px 12px;border-radius:16px;font-size:12px}
+        .status-pending{background:#ffd700;color:#333;padding:4px 12px;border-radius:16px;font-size:12px}
+    </style>
+</head>
+<body>
+    <a href="index.html" style="display:inline-block;margin-bottom:16px;text-decoration:none;color:#667eea">← ត្រឡប់</a>
+    <div class="header"><h2 id="uname">សួរស្តី!</h2></div>
+    <div class="stats" id="stats"></div>
+    <h3>📋 ការបញ្ជាទិញ</h3>
+    <div id="orders"></div>
+    <script>
+        const tg=Telegram.WebApp;tg.ready();tg.expand();
+        const u=tg.initDataUnsafe?.user;const API='https://YOUR_RENDER_SERVICE.onrender.com'; // ប្តូរ
+        if(u)document.getElementById('uname').textContent='សួរស្តី '+u.first_name+'!';
+        (async()=>{
+            const sr=await fetch(API+'/api/customer/stats?user_id='+u.id);const s=await sr.json();
+            document.getElementById('stats').innerHTML=`<div class="stat-card"><div class="stat-val">$${s.total_spent.toFixed(2)}</div><div>ចំណាយសរុប</div></div><div class="stat-card"><div class="stat-val">${s.total_orders}</div><div>ការបញ្ជាទិញ</div></div>`;
+            const or=await fetch(API+'/api/customer/orders?user_id='+u.id);const orders=await or.json();
+            document.getElementById('orders').innerHTML=orders.length?orders.map(o=>`<div class="order-card"><strong>#${o.id}</strong> - ${o.items.map(i=>i.name+' x'+i.quantity).join(', ')}<br>$${o.total_amount.toFixed(2)} <span class="status-${o.status}">${o.status}</span></div>`).join(''):'<p style="text-align:center;color:#999;padding:40px">មិនទាន់មានការបញ្ជាទិញ</p>';
+        })();
+    </script>
+</body>
+</html>
