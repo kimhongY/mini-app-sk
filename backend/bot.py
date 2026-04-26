@@ -16,7 +16,7 @@ import enum
 # ========== HARDCODED SETTINGS ==========
 BOT_TOKEN = "8670790936:AAGrR4VaeKXIrB5fTE8vb5LUPSw2oU6keqk"
 ADMIN_USER_ID = 661892014
-WEBAPP_URL = "https://kimhongy.github.io/luong/"
+WEBAPP_URL = "https://kimhongy.github.io/mini-app-sk/"
 DATABASE_URL = "sqlite:////tmp/shop.db"
 
 # ========== DATABASE SETUP ==========
@@ -248,12 +248,13 @@ def health_check():
     return Response('OK', status=200)
 
 @app.route('/webhook', methods=['POST'])
-def webhook():
+async def webhook():
     if request.method == 'POST':
         update = Update.de_json(request.get_json(force=True), ptb_app.bot)
-        ptb_app.update_queue.put_nowait(update)
+        # ដំណើរការ update ភ្លាមៗ
+        await ptb_app.process_update(update)
     return Response('ok', status=200)
-
+    
 # ========== API ROUTES (សម្រាប់ Frontend) ==========
 @app.route('/api/products', methods=['GET'])
 def get_products():
@@ -377,7 +378,23 @@ def set_webhook():
     asyncio.run(_set())
 
 if __name__ == '__main__':
-    # ចាប់ផ្ដើម webhook ក្នុង thread ដាច់ដោយឡែក បន្ទាប់ពី Flask រត់
+    # ត្រូវការ initialize PTB application មុននឹង Flask រត់
+    import asyncio
+    asyncio.run(ptb_app.initialize())
+    
+    # កំណត់ webhook បន្ទាប់ពី initialize
+    def set_webhook():
+        render_url = os.environ.get('RENDER_EXTERNAL_URL')
+        if render_url:
+            import requests
+            webhook_url = f"{render_url}/webhook"
+            ptb_app.bot.delete_webhook()
+            ptb_app.bot.set_webhook(url=webhook_url)
+            print(f"Webhook set to: {webhook_url}")
+        else:
+            print("RENDER_EXTERNAL_URL not set, webhook not configured.")
+    
     threading.Thread(target=set_webhook).start()
+    
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
