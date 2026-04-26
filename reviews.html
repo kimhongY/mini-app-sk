@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Reviews</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:var(--tg-theme-bg-color,#f5f5f5);color:var(--tg-theme-text-color,#222);padding:16px;padding-bottom:80px}
+        .back-btn{width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;margin-bottom:16px}
+        .average{text-align:center;margin-bottom:20px}
+        .big-number{font-size:48px;font-weight:bold}
+        .review-card{background:white;border-radius:12px;padding:16px;margin-bottom:12px}
+        .add-review-btn{position:fixed;bottom:16px;left:16px;right:16px;padding:16px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;border-radius:12px;font-size:18px;font-weight:bold;cursor:pointer}
+        .modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1000;padding:20px}
+        .modal-content{background:white;border-radius:16px;padding:24px;max-width:400px;margin:50px auto}
+        .star-select{display:flex;gap:8px;justify-content:center;margin:16px 0}
+        .star{font-size:36px;cursor:pointer}
+        .star.active{color:#ffd700}
+        textarea{width:100%;padding:12px;border:2px solid #e0e0e0;border-radius:8px}
+    </style>
+</head>
+<body>
+    <a class="back-btn" href="index.html">←</a>
+    <div class="average"><div class="big-number" id="avg-rating">0</div><div id="star-display"></div><div id="total-reviews">0 reviews</div></div>
+    <div id="reviews-list"></div>
+    <button class="add-review-btn" onclick="openModal()">✍️ សរសេរ Review</button>
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <h3>វាយតម្លៃ</h3>
+            <div class="star-select" id="stars">
+                <span class="star" onclick="setRating(1)">⭐</span><span class="star" onclick="setRating(2)">⭐</span><span class="star" onclick="setRating(3)">⭐</span><span class="star" onclick="setRating(4)">⭐</span><span class="star" onclick="setRating(5)">⭐</span>
+            </div>
+            <textarea id="comment" rows="3" placeholder="មតិ (មិនចាំបាច់)"></textarea>
+            <button class="add-review-btn" style="position:static;margin-top:12px" onclick="submitReview()">ផ្ញើ</button>
+            <button style="width:100%;padding:8px;margin-top:8px;background:#ddd;border:none;border-radius:8px;cursor:pointer" onclick="closeModal()">បោះបង់</button>
+        </div>
+    </div>
+    <script>
+        const tg=Telegram.WebApp;tg.ready();tg.expand();
+        const API='https://YOUR_RENDER_SERVICE.onrender.com'; // ប្តូរ
+        const id=new URLSearchParams(location.search).get('id');
+        const u=tg.initDataUnsafe?.user;let rating=0;
+        async function load(){
+            const r=await fetch(API+'/api/reviews/'+id);const data=await r.json();
+            document.getElementById('avg-rating').textContent=data.average_rating;
+            document.getElementById('star-display').innerHTML='⭐'.repeat(Math.round(data.average_rating));
+            document.getElementById('total-reviews').textContent=data.total_reviews+' reviews';
+            document.getElementById('reviews-list').innerHTML=data.reviews.map(r=>`<div class="review-card"><strong>${r.first_name}</strong> ${'⭐'.repeat(r.rating)}<br>${r.comment||''}</div>`).join('');
+        }
+        function setRating(r){rating=r;document.querySelectorAll('#stars .star').forEach((s,i)=>s.classList.toggle('active',i<r));}
+        function openModal(){document.getElementById('modal').style.display='block';}
+        function closeModal(){document.getElementById('modal').style.display='none';rating=0;document.querySelectorAll('#stars .star').forEach(s=>s.classList.remove('active'));}
+        async function submitReview(){
+            if(!rating){alert('សូមជ្រើសរើសផ្កាយ');return;}
+            await fetch(API+'/api/reviews',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:parseInt(id),user_id:u.id,username:u.username,first_name:u.first_name,rating,comment:document.getElementById('comment').value})});
+            alert('✅ អរគុណ!');closeModal();load();
+        }
+        load();
+    </script>
+</body>
+</html>
