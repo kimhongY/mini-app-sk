@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>លម្អិតទំនិញ</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:var(--tg-theme-bg-color,#f5f5f5);color:var(--tg-theme-text-color,#222);padding:16px;padding-bottom:80px}
+        .back-btn{width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;margin-bottom:16px}
+        .product-img{width:100%;height:250px;object-fit:cover;border-radius:16px;margin-bottom:16px;background:#eee}
+        .product-name{font-size:24px;font-weight:bold;margin-bottom:8px}
+        .stars{color:#ffd700;font-size:20px;margin-bottom:8px}
+        .price{font-size:32px;color:#28a745;font-weight:bold;margin-bottom:16px}
+        .desc{line-height:1.6;margin-bottom:20px;color:#666}
+        .add-cart-btn{position:fixed;bottom:16px;left:16px;right:16px;padding:16px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;border-radius:12px;font-size:18px;font-weight:bold;cursor:pointer}
+        .review{background:white;border-radius:12px;padding:12px;margin-bottom:8px}
+    </style>
+</head>
+<body>
+    <a class="back-btn" href="index.html">←</a>
+    <div id="content">Loading...</div>
+    <button class="add-cart-btn" onclick="addToCart()">+ បន្ថែមចូលកន្ត្រក</button>
+    <script>
+        const tg=Telegram.WebApp;tg.ready();tg.expand();
+        const API='https://YOUR_RENDER_SERVICE.onrender.com'; // ប្តូរ
+        const id=new URLSearchParams(location.search).get('id');let product=null;
+        (async()=>{
+            const pr=await fetch(API+'/api/products/'+id);product=await pr.json();
+            const rr=await fetch(API+'/api/reviews/'+id);const reviews=await rr.json();
+            document.getElementById('content').innerHTML=`
+                ${product.image_url?`<img src="${product.image_url}" class="product-img">`:`<div class="product-img" style="display:flex;align-items:center;justify-content:center;font-size:64px">📦</div>`}
+                <h1 class="product-name">${product.name}</h1>
+                <div class="stars">${'⭐'.repeat(Math.round(product.rating))} ${product.rating} (${product.total_reviews} reviews)</div>
+                <div class="price">$${product.price.toFixed(2)} <small>(${product.stars_price} ⭐)</small></div>
+                <p class="desc">${product.description||'No description'}</p>
+                <div><h3>Reviews</h3>${reviews.reviews.length?reviews.reviews.map(r=>`<div class="review"><strong>${r.first_name}</strong> ${'⭐'.repeat(r.rating)}<br>${r.comment||''}</div>`).join(''):'<p style="color:#999">មិនទាន់មាន reviews</p>'}</div>`;
+        })();
+        function addToCart(){
+            if(!product)return;
+            let cart=JSON.parse(localStorage.getItem('cart')||'[]');
+            let existing=cart.find(i=>i.id===product.id);
+            existing?existing.quantity+=1:cart.push({...product,quantity:1});
+            localStorage.setItem('cart',JSON.stringify(cart));
+            alert('✅ បានបន្ថែមចូលកន្ត្រក!');
+        }
+    </script>
+</body>
+</html>
