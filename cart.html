@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>កន្ត្រក</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:var(--tg-theme-bg-color,#f5f5f5);color:var(--tg-theme-text-color,#222);padding:16px;padding-bottom:150px}
+        .header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+        .back-btn{width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;box-shadow:0 2px 4px rgba(0,0,0,.1);text-decoration:none;color:inherit}
+        .cart-item{background:var(--tg-theme-secondary-bg-color,white);border-radius:12px;padding:16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+        .cart-item-info{flex:1}
+        .cart-item-name{font-weight:600;font-size:16px}
+        .cart-item-price{color:#666;font-size:14px}
+        .qty-controls{display:flex;gap:8px;align-items:center}
+        .qty-btn{width:28px;height:28px;border-radius:50%;border:2px solid var(--tg-theme-button-color,#667eea);background:transparent;color:var(--tg-theme-button-color,#667eea);font-size:16px;cursor:pointer}
+        .remove-btn{color:#ff4444;border:none;background:transparent;font-size:20px;cursor:pointer}
+        .voucher-section{background:white;border-radius:12px;padding:16px;margin-bottom:12px}
+        .voucher-input-group{display:flex;gap:8px;margin-top:8px}
+        .voucher-input{flex:1;padding:10px;border:2px solid #e0e0e0;border-radius:8px;font-size:16px}
+        .voucher-apply-btn{padding:10px 20px;background:var(--tg-theme-button-color,#667eea);color:white;border:none;border-radius:8px;cursor:pointer}
+        .summary-section{background:white;border-radius:12px;padding:16px;margin-bottom:12px}
+        .summary-row{display:flex;justify-content:space-between;padding:4px 0}
+        .summary-row.total{font-size:20px;font-weight:bold;border-top:2px solid #eee;padding-top:12px;margin-top:8px}
+        .checkout-section{position:fixed;bottom:0;left:0;right:0;padding:16px;background:var(--tg-theme-bg-color,#f5f5f5);box-shadow:0 -2px 10px rgba(0,0,0,.1)}
+        .checkout-btn{width:100%;padding:16px;background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;border-radius:12px;font-size:18px;font-weight:bold;cursor:pointer}
+        .checkout-btn:disabled{opacity:0.5;cursor:not-allowed}
+        .empty-cart{text-align:center;padding:60px 20px;color:#999}
+    </style>
+</head>
+<body>
+    <div class="header"><a class="back-btn" href="index.html">←</a><h2>🛒 កន្ត្រក</h2></div>
+    <div id="cart-items"></div>
+    <div class="voucher-section" id="voucher-section" style="display:none">
+        <label>🎫 មានកូដបញ្ចុះតម្លៃ?</label>
+        <div class="voucher-input-group"><input type="text" class="voucher-input" id="voucher-code" placeholder="បញ្ចូលកូដ"><button class="voucher-apply-btn" onclick="applyVoucher()">ពិនិត្យ</button></div>
+        <div id="voucher-message" style="margin-top:8px;font-size:14px"></div>
+    </div>
+    <div class="summary-section" id="summary-section" style="display:none">
+        <div class="summary-row"><span>សរុប:</span><span id="subtotal">$0.00</span></div>
+        <div class="summary-row" style="color:#28a745;display:none" id="discount-row"><span>បញ្ចុះ:</span><span id="discount-amount">-$0.00</span></div>
+        <div class="summary-row total"><span>សរុបចុងក្រោយ:</span><span id="total">$0.00</span></div>
+        <div class="summary-row" style="color:#666;font-size:14px"><span>Stars:</span><span id="stars-total">0 ⭐</span></div>
+    </div>
+    <div class="checkout-section"><button class="checkout-btn" id="checkout-btn" disabled onclick="checkout()">បន្តទៅទូទាត់ 💳</button></div>
+
+    <script>
+        const tg=window.Telegram.WebApp;tg.ready();tg.expand();
+        const API_URL='https://YOUR_RENDER_SERVICE.onrender.com'; // ប្តូរ
+        let cart=JSON.parse(localStorage.getItem('cart')||'[]');
+        let appliedVoucher=null;
+        
+        function renderCart(){
+            if(cart.length===0){
+                document.getElementById('cart-items').innerHTML='<div class="empty-cart"><div style="font-size:64px">🛒</div><h3>កន្ត្រកទទេ</h3><p>ទៅកាន់ <a href="index.html">Shop</a></p></div>';
+                document.getElementById('voucher-section').style.display='none';
+                document.getElementById('summary-section').style.display='none';
+                document.getElementById('checkout-btn').disabled=true;
+            }else{
+                document.getElementById('cart-items').innerHTML=cart.map((item,index)=>`
+                    <div class="cart-item">
+                        <div class="cart-item-info">
+                            <div class="cart-item-name">${item.name}</div>
+                            <div class="cart-item-price">$${item.price.toFixed(2)} / មួយ</div>
+                            <div style="font-weight:bold">$${(item.price*item.quantity).toFixed(2)}</div>
+                        </div>
+                        <div class="qty-controls">
+                            <button class="qty-btn" onclick="updateQty(${index},-1)">-</button>
+                            <span>${item.quantity}</span>
+                            <button class="qty-btn" onclick="updateQty(${index},1)">+</button>
+                        </div>
+                        <button class="remove-btn" onclick="removeItem(${index})">🗑️</button>
+                    </div>`).join('');
+                document.getElementById('voucher-section').style.display='block';
+                document.getElementById('summary-section').style.display='block';
+                document.getElementById('checkout-btn').disabled=false;
+            }
+            updateTotals();
+        }
+        function updateQty(index,change){
+            cart[index].quantity+=change;
+            if(cart[index].quantity<=0)cart.splice(index,1);
+            localStorage.setItem('cart',JSON.stringify(cart));
+            renderCart();
+        }
+        function removeItem(index){cart.splice(index,1);localStorage.setItem('cart',JSON.stringify(cart));renderCart();}
+        function updateTotals(){
+            const subtotal=cart.reduce((s,i)=>s+i.price*i.quantity,0);
+            document.getElementById('subtotal').textContent=`$${subtotal.toFixed(2)}`;
+            let discount=0;
+            if(appliedVoucher){discount=appliedVoucher.discount_percent?subtotal*(appliedVoucher.discount_percent/100):(appliedVoucher.discount_amount||0);document.getElementById('discount-row').style.display='flex';document.getElementById('discount-amount').textContent=`-$${discount.toFixed(2)}`}else{document.getElementById('discount-row').style.display='none'}
+            const total=Math.max(0,subtotal-discount);
+            document.getElementById('total').textContent=`$${total.toFixed(2)}`;
+            let stars=cart.reduce((s,i)=>s+(i.stars_price||0)*i.quantity,0);
+            if(appliedVoucher&&appliedVoucher.discount_percent)stars=Math.max(1,Math.round(stars*(1-appliedVoucher.discount_percent/100)));
+            document.getElementById('stars-total').textContent=`${stars} ⭐`;
+        }
+        async function applyVoucher(){
+            const code=document.getElementById('voucher-code').value.trim();
+            if(!code)return;
+            const r=await fetch(API_URL+'/api/vouchers/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+            if(r.ok){appliedVoucher=await r.json();document.getElementById('voucher-message').innerHTML='<span style="color:#28a745">✅ កូដត្រឹមត្រូវ!</span>'}else{appliedVoucher=null;document.getElementById('voucher-message').innerHTML='<span style="color:#ff4444">❌ កូដមិនត្រឹមត្រូវ</span>'}
+            updateTotals();
+        }
+        async function checkout(){
+            if(cart.length===0)return;
+            const orderData={items:cart.map(i=>({id:i.id,name:i.name,price:i.price,stars_price:i.stars_price,quantity:i.quantity})),totalAmount:parseFloat(document.getElementById('total').textContent.replace('$','')),voucherCode:appliedVoucher?document.getElementById('voucher-code').value:null};
+            tg.sendData(JSON.stringify({action:"create_invoice",payload:orderData}));
+            alert('✅ បញ្ជាទិញជោគជ័យ! សូមពិនិត្យ Telegram ដើម្បីបង់ប្រាក់។');
+            cart=[];appliedVoucher=null;localStorage.setItem('cart','[]');renderCart();
+            setTimeout(()=>tg.close(),2000);
+        }
+        renderCart();
+    </script>
+</body>
+</html>
