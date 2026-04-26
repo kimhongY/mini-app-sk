@@ -39,7 +39,7 @@
     </div>
     <script>
         const tg=Telegram.WebApp;tg.ready();tg.expand();
-        const API='https://YOUR_RENDER_SERVICE.onrender.com'; // ប្តូរ
+        const API_URL = 'https://mini-skshop-api.onrender.com';
         const id=new URLSearchParams(location.search).get('id');
         const u=tg.initDataUnsafe?.user;let rating=0;
         async function load(){
