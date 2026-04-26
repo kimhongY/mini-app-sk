@@ -1,14 +1,16 @@
 import sys
 import os
 import json
+import threading
 from datetime import datetime
-from flask import Flask, request, Response
+from flask import Flask, request, Response, jsonify as flask_jsonify
 from dotenv import load_dotenv
 from telegram import Update, LabeledPrice, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, PreCheckoutQueryHandler, CallbackQueryHandler
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Enum, func
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Enum, func, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import OperationalError
 import enum
 
 # ========== HARDCODED SETTINGS ==========
@@ -17,8 +19,8 @@ ADMIN_USER_ID = 661892014
 WEBAPP_URL = "https://kimhongy.github.io/luong/"
 DATABASE_URL = "sqlite:////tmp/shop.db"
 
-# ========== DATABASE ==========
-engine = create_engine(DATABASE_URL)
+# ========== DATABASE SETUP ==========
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -90,7 +92,15 @@ class Review(Base):
     is_verified = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-Base.metadata.create_all(engine)
+# Retry loop for database creation
+for i in range(5):
+    try:
+        Base.metadata.create_all(engine)
+        break
+    except OperationalError:
+        if i == 4:
+            raise
+        time.sleep(2)
 
 def get_db():
     db = SessionLocal()
@@ -245,131 +255,129 @@ def webhook():
     return Response('ok', status=200)
 
 # ========== API ROUTES (សម្រាប់ Frontend) ==========
-from flask import request as flask_request, jsonify
-from models import Product as DB_Product, Order as DB_Order, Voucher as DB_Voucher, Review as DB_Review
-from flask_cors import CORS
-import base64
-from sqlalchemy import func
-
-CORS(app)
-
 @app.route('/api/products', methods=['GET'])
 def get_products():
     db = next(get_db())
-    products = db.query(DB_Product).filter(DB_Product.is_active == 1).all()
-    return jsonify([{'id': p.id, 'name': p.name, 'description': p.description, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating, 'total_reviews': p.total_reviews} for p in products])
+    products = db.query(Product).filter(Product.is_active == 1).all()
+    return flask_jsonify([{'id': p.id, 'name': p.name, 'description': p.description, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating, 'total_reviews': p.total_reviews} for p in products])
 
 @app.route('/api/products', methods=['POST'])
 def add_product():
     db = next(get_db())
-    data = flask_request.json
-    product = DB_Product(name=data['name'], description=data.get('description', ''), price=data['price'], stars_price=data['stars_price'], image_url=data.get('image_url', ''), stock=data.get('stock', 0), category=data.get('category', 'General'))
+    data = request.json
+    product = Product(name=data['name'], description=data.get('description', ''), price=data['price'], stars_price=data['stars_price'], image_url=data.get('image_url', ''), stock=data.get('stock', 0), category=data.get('category', 'General'))
     db.add(product)
     db.commit()
-    return jsonify({'message': 'Added', 'id': product.id}), 201
+    return flask_jsonify({'message': 'Added', 'id': product.id}), 201
 
 @app.route('/api/products/<int:pid>', methods=['GET'])
 def get_product(pid):
     db = next(get_db())
-    p = db.query(DB_Product).get(pid)
-    if not p: return jsonify({'error': 'Not found'}), 404
-    return jsonify({'id': p.id, 'name': p.name, 'description': p.description, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating, 'total_reviews': p.total_reviews})
+    p = db.query(Product).get(pid)
+    if not p: return flask_jsonify({'error': 'Not found'}), 404
+    return flask_jsonify({'id': p.id, 'name': p.name, 'description': p.description, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating, 'total_reviews': p.total_reviews})
 
 @app.route('/api/products/<int:pid>', methods=['DELETE'])
 def delete_product(pid):
     db = next(get_db())
-    p = db.query(DB_Product).get(pid)
+    p = db.query(Product).get(pid)
     if p: p.is_active = 0; db.commit()
-    return jsonify({'message': 'Deleted'})
+    return flask_jsonify({'message': 'Deleted'})
 
 @app.route('/api/products/search', methods=['GET'])
 def search_products():
     db = next(get_db())
-    q = flask_request.args.get('q', '')
-    query = db.query(DB_Product).filter(DB_Product.is_active == 1)
-    if q: query = query.filter(DB_Product.name.ilike(f'%{q}%') | DB_Product.description.ilike(f'%{q}%'))
-    return jsonify([{'id': p.id, 'name': p.name, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating} for p in query.limit(30).all()])
+    q = request.args.get('q', '')
+    query = db.query(Product).filter(Product.is_active == 1)
+    if q: query = query.filter(Product.name.ilike(f'%{q}%') | Product.description.ilike(f'%{q}%'))
+    return flask_jsonify([{'id': p.id, 'name': p.name, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating} for p in query.limit(30).all()])
 
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
     db = next(get_db())
-    return jsonify([c[0] for c in db.query(DB_Product.category).filter(DB_Product.is_active == 1).distinct().all() if c[0]])
+    return flask_jsonify([c[0] for c in db.query(Product.category).filter(Product.is_active == 1).distinct().all() if c[0]])
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
     db = next(get_db())
-    orders = db.query(DB_Order).order_by(DB_Order.created_at.desc()).all()
-    return jsonify([{'id': o.id, 'user_id': o.user_id, 'username': o.username, 'first_name': o.first_name, 'items': o.items, 'total_amount': o.total_amount, 'status': o.status.value, 'created_at': o.created_at.isoformat()} for o in orders])
+    orders = db.query(Order).order_by(Order.created_at.desc()).all()
+    return flask_jsonify([{'id': o.id, 'user_id': o.user_id, 'username': o.username, 'first_name': o.first_name, 'items': o.items, 'total_amount': o.total_amount, 'status': o.status.value, 'created_at': o.created_at.isoformat()} for o in orders])
 
 @app.route('/api/customer/orders', methods=['GET'])
 def customer_orders():
-    uid = flask_request.args.get('user_id', type=int)
+    uid = request.args.get('user_id', type=int)
     db = next(get_db())
-    orders = db.query(DB_Order).filter(DB_Order.user_id == uid).order_by(DB_Order.created_at.desc()).all()
-    return jsonify([{'id': o.id, 'items': o.items, 'total_amount': o.total_amount, 'status': o.status.value, 'created_at': o.created_at.isoformat()} for o in orders])
+    orders = db.query(Order).filter(Order.user_id == uid).order_by(Order.created_at.desc()).all()
+    return flask_jsonify([{'id': o.id, 'items': o.items, 'total_amount': o.total_amount, 'status': o.status.value, 'created_at': o.created_at.isoformat()} for o in orders])
 
 @app.route('/api/customer/stats', methods=['GET'])
 def customer_stats():
-    uid = flask_request.args.get('user_id', type=int)
+    uid = request.args.get('user_id', type=int)
     db = next(get_db())
-    orders = db.query(DB_Order).filter(DB_Order.user_id == uid).all()
+    orders = db.query(Order).filter(Order.user_id == uid).all()
     total = sum(o.total_amount for o in orders if o.status in [OrderStatus.PAID, OrderStatus.DELIVERED])
     done = len([o for o in orders if o.status in [OrderStatus.PAID, OrderStatus.DELIVERED]])
-    return jsonify({'total_spent': total, 'total_orders': len(orders), 'completed_orders': done, 'pending_orders': len([o for o in orders if o.status == OrderStatus.PENDING]), 'average_order_value': total / done if done > 0 else 0})
+    return flask_jsonify({'total_spent': total, 'total_orders': len(orders), 'completed_orders': done, 'pending_orders': len([o for o in orders if o.status == OrderStatus.PENDING]), 'average_order_value': total / done if done > 0 else 0})
 
 @app.route('/api/reviews', methods=['POST'])
 def add_review():
-    data = flask_request.json
+    data = request.json
     db = next(get_db())
-    review = DB_Review(product_id=data['product_id'], user_id=data['user_id'], username=data.get('username'), first_name=data.get('first_name'), rating=data['rating'], comment=data.get('comment', ''))
+    review = Review(product_id=data['product_id'], user_id=data['user_id'], username=data.get('username'), first_name=data.get('first_name'), rating=data['rating'], comment=data.get('comment', ''))
     db.add(review)
-    avg_rating = db.query(func.avg(DB_Review.rating)).filter(DB_Review.product_id == data['product_id']).scalar() or 0
-    total_reviews = db.query(func.count(DB_Review.id)).filter(DB_Review.product_id == data['product_id']).scalar() or 0
-    product = db.query(DB_Product).get(data['product_id'])
+    avg_rating = db.query(func.avg(Review.rating)).filter(Review.product_id == data['product_id']).scalar() or 0
+    total_reviews = db.query(func.count(Review.id)).filter(Review.product_id == data['product_id']).scalar() or 0
+    product = db.query(Product).get(data['product_id'])
     if product:
         product.rating = round(float(avg_rating), 1)
         product.total_reviews = total_reviews
     db.commit()
-    return jsonify({'message': 'Added'}), 201
+    return flask_jsonify({'message': 'Added'}), 201
 
 @app.route('/api/reviews/<int:pid>', methods=['GET'])
 def get_reviews(pid):
     db = next(get_db())
-    avg = db.query(func.avg(DB_Review.rating)).filter(DB_Review.product_id == pid).scalar() or 0
-    reviews = db.query(DB_Review).filter(DB_Review.product_id == pid).order_by(DB_Review.created_at.desc()).limit(20).all()
-    return jsonify({'average_rating': round(float(avg), 1), 'total_reviews': len(reviews), 'reviews': [{'id': r.id, 'first_name': r.first_name or 'Anonymous', 'rating': r.rating, 'comment': r.comment, 'created_at': r.created_at.isoformat()} for r in reviews]})
+    avg = db.query(func.avg(Review.rating)).filter(Review.product_id == pid).scalar() or 0
+    reviews = db.query(Review).filter(Review.product_id == pid).order_by(Review.created_at.desc()).limit(20).all()
+    return flask_jsonify({'average_rating': round(float(avg), 1), 'total_reviews': len(reviews), 'reviews': [{'id': r.id, 'first_name': r.first_name or 'Anonymous', 'rating': r.rating, 'comment': r.comment, 'created_at': r.created_at.isoformat()} for r in reviews]})
 
 @app.route('/api/vouchers', methods=['GET'])
 def get_vouchers():
     db = next(get_db())
-    return jsonify([{'id': v.id, 'code': v.code, 'discount_percent': v.discount_percent, 'discount_amount': v.discount_amount, 'max_uses': v.max_uses, 'current_uses': v.current_uses} for v in db.query(DB_Voucher).all()])
+    return flask_jsonify([{'id': v.id, 'code': v.code, 'discount_percent': v.discount_percent, 'discount_amount': v.discount_amount, 'max_uses': v.max_uses, 'current_uses': v.current_uses} for v in db.query(Voucher).all()])
 
 @app.route('/api/vouchers', methods=['POST'])
 def add_voucher():
     db = next(get_db())
-    data = flask_request.json
-    v = DB_Voucher(code=data['code'], discount_percent=data.get('discount_percent'), discount_amount=data.get('discount_amount'), max_uses=data.get('max_uses', 100))
+    data = request.json
+    v = Voucher(code=data['code'], discount_percent=data.get('discount_percent'), discount_amount=data.get('discount_amount'), max_uses=data.get('max_uses', 100))
     db.add(v)
     db.commit()
-    return jsonify({'message': 'Created', 'id': v.id}), 201
+    return flask_jsonify({'message': 'Created', 'id': v.id}), 201
 
 @app.route('/api/vouchers/validate', methods=['POST'])
 def validate_voucher():
     db = next(get_db())
-    v = db.query(DB_Voucher).filter(DB_Voucher.code == flask_request.json.get('code'), DB_Voucher.is_active == 1, DB_Voucher.current_uses < DB_Voucher.max_uses).first()
-    if v: return jsonify({'valid': True, 'discount_percent': v.discount_percent, 'discount_amount': v.discount_amount})
-    return jsonify({'valid': False}), 404
+    v = db.query(Voucher).filter(Voucher.code == request.json.get('code'), Voucher.is_active == 1, Voucher.current_uses < Voucher.max_uses).first()
+    if v: return flask_jsonify({'valid': True, 'discount_percent': v.discount_percent, 'discount_amount': v.discount_amount})
+    return flask_jsonify({'valid': False}), 404
 
 # ========== STARTUP ==========
 def set_webhook():
-    render_url = os.environ.get('RENDER_EXTERNAL_URL')
-    if render_url:
-        webhook_url = f"{render_url}/webhook"
-        ptb_app.bot.delete_webhook()
-        ptb_app.bot.set_webhook(url=webhook_url)
-        print(f"Webhook set to: {webhook_url}")
+    # រង់ចាំឲ្យ bot ត្រៀមខ្លួនជាស្រេច
+    import asyncio
+    async def _set():
+        await ptb_app.initialize()
+        render_url = os.environ.get('RENDER_EXTERNAL_URL')
+        if render_url:
+            webhook_url = f"{render_url}/webhook"
+            await ptb_app.bot.delete_webhook()
+            await ptb_app.bot.set_webhook(url=webhook_url)
+            print(f"Webhook set to: {webhook_url}")
+    asyncio.run(_set())
 
 if __name__ == '__main__':
-    set_webhook()
+    # ចាប់ផ្ដើម webhook ក្នុង thread ដាច់ដោយឡែក បន្ទាប់ពី Flask រត់
+    threading.Thread(target=set_webhook).start()
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
