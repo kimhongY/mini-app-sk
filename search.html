@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ស្វែងរក</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:var(--tg-theme-bg-color,#f5f5f5);color:var(--tg-theme-text-color,#222);padding:16px}
+        .back-btn{width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;margin-bottom:16px}
+        .search-box{display:flex;gap:8px;margin-bottom:16px}
+        .search-box input{flex:1;padding:12px;border:2px solid #e0e0e0;border-radius:12px;font-size:16px}
+        .product-card{background:white;border-radius:12px;padding:12px;margin-bottom:12px;display:flex;gap:12px;cursor:pointer}
+        .product-card img{width:80px;height:80px;object-fit:cover;border-radius:8px}
+        .product-name{font-weight:bold}
+        .product-price{color:#28a745;font-weight:bold;font-size:18px}
+    </style>
+</head>
+<body>
+    <a class="back-btn" href="index.html">←</a>
+    <h2>🔍 ស្វែងរក</h2>
+    <div class="search-box"><input type="text" id="search" placeholder="ស្វែងរកទំនិញ..."></div>
+    <div id="results"></div>
+    <script>
+        const API='https://YOUR_RENDER_SERVICE.onrender.com'; // ប្តូរ
+        document.getElementById('search').addEventListener('input',async()=>{
+            const q=document.getElementById('search').value;
+            if(q.length<2){document.getElementById('results').innerHTML='';return;}
+            const r=await fetch(API+'/api/products/search?q='+q);
+            const p=await r.json();
+            document.getElementById('results').innerHTML=p.length?p.map(p=>`<div class="product-card" onclick="location.href='product-detail.html?id=${p.id}'">${p.image_url?`<img src="${p.image_url}">`:'<div style="width:80px;height:80px;background:#eee;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:32px">📦</div>'}<div><div class="product-name">${p.name}</div><div class="product-price">$${p.price.toFixed(2)}</div><div>${p.stars_price} ⭐</div></div></div>`).join(''):'<p style="text-align:center;color:#999;padding:40px">រកមិនឃើញ</p>';
+        });
+    </script>
+</body>
+</html>
