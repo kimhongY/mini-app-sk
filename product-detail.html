@@ -24,7 +24,7 @@
     <button class="add-cart-btn" onclick="addToCart()">+ បន្ថែមចូលកន្ត្រក</button>
     <script>
         const tg=Telegram.WebApp;tg.ready();tg.expand();
-        const API_URL = 'https://mini-skshop-api.onrender.com';
+        const API_URL = 'https://mini-app-sk.onrender.com';
         const id=new URLSearchParams(location.search).get('id');let product=null;
         (async()=>{
             const pr=await fetch(API+'/api/products/'+id);product=await pr.json();
