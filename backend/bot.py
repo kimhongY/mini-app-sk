@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 import enum
 
 # ========== HARDCODED SETTINGS ==========
-BOT_TOKEN = os.getenv('8670790936:AAGQzH9HzhV5vOgIKWKCxs6w_gXbSv4SqdY')
+BOT_TOKEN = "8670790936:AAGQzH9HzhV5vOgIKWKCxs6w_gXbSv4SqdY"
 ADMIN_USER_ID =​​ 661892014
 WEBAPP_URL = "https://kimhongy.github.io/mini-app-sk/"
 DATABASE_URL = "sqlite:////tmp/shop.db"
