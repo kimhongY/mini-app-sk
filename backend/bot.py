@@ -200,6 +200,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.message.reply_text("🛍️ *Commands*\n/start - Open shop\n/admin - Admin panel", parse_mode='Markdown')
 
 # ========== FLASK APP ==========
+from flask import Flask
 app = Flask(__name__)
 
 # ========== API ROUTES ==========
