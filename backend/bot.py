@@ -250,10 +250,10 @@ def customer_stats():
 @app.route('/api/upload', methods=['POST'])
 def upload_image():
     data = request.json
-    image_data = data.get('image')
-    if not image_data: return flask_jsonify({'error': 'No image'}), 400
-    image_bytes = request.json.get('image_bytes')  # ត្រូវការ base64 bytes
-    return flask_jsonify({'url': image_data})  # សាមញ្ញសម្រាប់ពេលនេះ ត្រឡប់ URL ផ្ទាល់
+    image_url = data.get('image_url')
+    if image_url:
+        return flask_jsonify({'url': image_url}), 201
+    return flask_jsonify({'error': 'No URL provided'}), 400
 
 @app.route('/api/inventory/check', methods=['POST'])
 def check_inventory():
@@ -263,17 +263,31 @@ def check_inventory():
 
 @app.route('/api/inventory/low-stock', methods=['GET'])
 def low_stock():
-    return flask_jsonify(InventoryManager.get_low_stock_products())
+    db = next(get_db())
+    products = db.query(Product).filter(Product.stock <= 5, Product.is_active == 1).all()
+    return flask_jsonify([{'id': p.id, 'name': p.name, 'stock': p.stock} for p in products])
 
 @app.route('/api/inventory/restock', methods=['POST'])
 def restock():
     data = request.json
-    result = InventoryManager.restock_product(data.get('product_id'), data.get('quantity', 1))
-    return flask_jsonify(result)
+    db = next(get_db())
+    product = db.query(Product).get(data.get('product_id'))
+    if product:
+        product.stock += data.get('quantity', 1)
+        db.commit()
+        return flask_jsonify({'message': 'Restocked', 'new_stock': product.stock})
+    return flask_jsonify({'error': 'Product not found'}), 404
 
 @app.route('/api/inventory/report', methods=['GET'])
 def inventory_report():
-    return flask_jsonify(InventoryManager.get_inventory_report())
+    db = next(get_db())
+    products = db.query(Product).all()
+    return flask_jsonify({
+        'total_products': len(products),
+        'total_value': sum(p.stock * p.price for p in products),
+        'out_of_stock': [p.name for p in products if p.stock == 0],
+        'low_stock': [p.name for p in products if 0 < p.stock <= 5]
+    })
 
 @app.route('/api/reviews', methods=['POST'])
 def add_review():
@@ -358,6 +372,7 @@ def validate_voucher():
             'discount_amount': v.discount_amount
         })
     return flask_jsonify({'valid': False}), 404
+    
 # ========== WEBHOOK ==========
 ptb_app = Application.builder().token(BOT_TOKEN).build()
 ptb_app.add_handler(CommandHandler("start", start))
