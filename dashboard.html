@@ -25,7 +25,7 @@
     <div id="orders"></div>
     <script>
         const tg=Telegram.WebApp;tg.ready();tg.expand();
-        const u=tg.initDataUnsafe?.user;const API_URL = 'https://mini-skshop-api.onrender.com';
+        const u=tg.initDataUnsafe?.user;const API_URL = 'https://mini-app-sk.onrender.com';
         if(u)document.getElementById('uname').textContent='សួរស្តី '+u.first_name+'!';
         (async()=>{
             const sr=await fetch(API+'/api/customer/stats?user_id='+u.id);const s=await sr.json();
