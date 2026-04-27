@@ -204,25 +204,161 @@ from flask import Flask
 app = Flask(__name__)
 
 # ========== API ROUTES ==========
-@app.route('/api/products', methods=['GET'])
-def get_products():
+@app.route('/api/orders', methods=['GET'])
+def get_orders():
     db = next(get_db())
-    products = db.query(Product).filter(Product.is_active == 1).all()
-    return flask_jsonify([{'id': p.id, 'name': p.name, 'description': p.description, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating, 'total_reviews': p.total_reviews} for p in products])
+    orders = db.query(Order).order_by(Order.created_at.desc()).all()
+    return flask_jsonify([{
+        'id': o.id,
+        'user_id': o.user_id,
+        'username': o.username,
+        'first_name': o.first_name,
+        'items': o.items,
+        'total_amount': o.total_amount,
+        'status': o.status.value,
+        'created_at': o.created_at.isoformat()
+    } for o in orders])
 
-@app.route('/api/products', methods=['POST'])
-def add_product():
-    db = next(get_db()); data = request.json
-    product = Product(name=data['name'], description=data.get('description', ''), price=data['price'], stars_price=data['stars_price'], image_url=data.get('image_url', ''), stock=data.get('stock', 0), category=data.get('category', 'General'))
-    db.add(product); db.commit()
-    return flask_jsonify({'message': 'Added', 'id': product.id}), 201
+@app.route('/api/customer/orders', methods=['GET'])
+def customer_orders():
+    uid = request.args.get('user_id', type=int)
+    db = next(get_db())
+    orders = db.query(Order).filter(Order.user_id == uid).order_by(Order.created_at.desc()).all()
+    return flask_jsonify([{
+        'id': o.id,
+        'items': o.items,
+        'total_amount': o.total_amount,
+        'status': o.status.value,
+        'created_at': o.created_at.isoformat()
+    } for o in orders])
 
-@app.route('/api/products/<int:pid>', methods=['GET'])
-def get_product(pid):
-    db = next(get_db()); p = db.query(Product).get(pid)
-    if not p: return flask_jsonify({'error': 'Not found'}), 404
-    return flask_jsonify({'id': p.id, 'name': p.name, 'description': p.description, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating, 'total_reviews': p.total_reviews})
+@app.route('/api/customer/stats', methods=['GET'])
+def customer_stats():
+    uid = request.args.get('user_id', type=int)
+    db = next(get_db())
+    orders = db.query(Order).filter(Order.user_id == uid).all()
+    total = sum(o.total_amount for o in orders if o.status in [OrderStatus.PAID, OrderStatus.DELIVERED])
+    done = len([o for o in orders if o.status in [OrderStatus.PAID, OrderStatus.DELIVERED]])
+    return flask_jsonify({
+        'total_spent': total,
+        'total_orders': len(orders),
+        'completed_orders': done,
+        'pending_orders': len([o for o in orders if o.status == OrderStatus.PENDING]),
+        'average_order_value': total / done if done > 0 else 0
+    })
 
+@app.route('/api/upload', methods=['POST'])
+def upload_image():
+    data = request.json
+    image_data = data.get('image')
+    if not image_data: return flask_jsonify({'error': 'No image'}), 400
+    image_bytes = request.json.get('image_bytes')  # ត្រូវការ base64 bytes
+    return flask_jsonify({'url': image_data})  # សាមញ្ញសម្រាប់ពេលនេះ ត្រឡប់ URL ផ្ទាល់
+
+@app.route('/api/inventory/check', methods=['POST'])
+def check_inventory():
+    data = request.json
+    result = InventoryManager.check_stock(data.get('product_id'), data.get('quantity', 1))
+    return flask_jsonify(result)
+
+@app.route('/api/inventory/low-stock', methods=['GET'])
+def low_stock():
+    return flask_jsonify(InventoryManager.get_low_stock_products())
+
+@app.route('/api/inventory/restock', methods=['POST'])
+def restock():
+    data = request.json
+    result = InventoryManager.restock_product(data.get('product_id'), data.get('quantity', 1))
+    return flask_jsonify(result)
+
+@app.route('/api/inventory/report', methods=['GET'])
+def inventory_report():
+    return flask_jsonify(InventoryManager.get_inventory_report())
+
+@app.route('/api/reviews', methods=['POST'])
+def add_review():
+    data = request.json
+    db = next(get_db())
+    review = Review(
+        product_id=data['product_id'],
+        user_id=data['user_id'],
+        username=data.get('username'),
+        first_name=data.get('first_name'),
+        rating=data['rating'],
+        comment=data.get('comment', '')
+    )
+    db.add(review)
+    avg_rating = db.query(func.avg(Review.rating)).filter(Review.product_id == data['product_id']).scalar() or 0
+    total_reviews = db.query(func.count(Review.id)).filter(Review.product_id == data['product_id']).scalar() or 0
+    product = db.query(Product).get(data['product_id'])
+    if product:
+        product.rating = round(float(avg_rating), 1)
+        product.total_reviews = total_reviews
+    db.commit()
+    return flask_jsonify({'message': 'Added'}), 201
+
+@app.route('/api/reviews/<int:pid>', methods=['GET'])
+def get_reviews(pid):
+    db = next(get_db())
+    avg = db.query(func.avg(Review.rating)).filter(Review.product_id == pid).scalar() or 0
+    reviews = db.query(Review).filter(Review.product_id == pid).order_by(Review.created_at.desc()).limit(20).all()
+    return flask_jsonify({
+        'average_rating': round(float(avg), 1),
+        'total_reviews': len(reviews),
+        'reviews': [{
+            'id': r.id,
+            'first_name': r.first_name or 'Anonymous',
+            'rating': r.rating,
+            'comment': r.comment,
+            'is_verified': bool(r.is_verified),
+            'created_at': r.created_at.isoformat()
+        } for r in reviews]
+    })
+
+@app.route('/api/vouchers', methods=['GET'])
+def get_vouchers():
+    db = next(get_db())
+    vouchers = db.query(Voucher).all()
+    return flask_jsonify([{
+        'id': v.id,
+        'code': v.code,
+        'discount_percent': v.discount_percent,
+        'discount_amount': v.discount_amount,
+        'max_uses': v.max_uses,
+        'current_uses': v.current_uses
+    } for v in vouchers])
+
+@app.route('/api/vouchers', methods=['POST'])
+def add_voucher():
+    db = next(get_db())
+    data = request.json
+    v = Voucher(
+        code=data['code'],
+        discount_percent=data.get('discount_percent'),
+        discount_amount=data.get('discount_amount'),
+        max_uses=data.get('max_uses', 100)
+    )
+    db.add(v)
+    db.commit()
+    return flask_jsonify({'message': 'Created', 'id': v.id}), 201
+
+@app.route('/api/vouchers/validate', methods=['POST'])
+def validate_voucher():
+    db = next(get_db())
+    code = request.json.get('code')
+    v = db.query(Voucher).filter(
+        Voucher.code == code,
+        Voucher.is_active == 1,
+        Voucher.current_uses < Voucher.max_uses
+    ).first()
+    if v:
+        return flask_jsonify({
+            'valid': True,
+            'discount_percent': v.discount_percent,
+            'discount_amount': v.discount_amount
+        })
+    return flask_jsonify({'valid': False}), 404
+    
 @app.route('/api/products/<int:pid>', methods=['DELETE'])
 def delete_product(pid):
     db = next(get_db()); p = db.query(Product).get(pid)
