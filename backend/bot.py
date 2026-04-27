@@ -1,7 +1,6 @@
 import sys
 import os
 import json
-import asyncio
 from datetime import datetime
 from flask import Flask, request, Response, jsonify as flask_jsonify
 from dotenv import load_dotenv
@@ -11,6 +10,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import enum
+import asyncio
 
 # ========== HARDCODED SETTINGS ==========
 BOT_TOKEN = "8670790936:AAGrR4VaeKXIrB5fTE8vb5LUPSw2oU6keqk"
@@ -223,8 +223,12 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("🛍️ *Commands*\n/start - Open shop\n/admin - Admin panel", parse_mode='Markdown')
 
-# ========== FLASK APP ==========
+# ========== FLASK APP (សម្រាប់តែ API ប៉ុណ្ណោះ) ==========
 app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return Response('OK', status=200)
 
 # ========== API ROUTES ==========
 @app.route('/api/products', methods=['GET'])
@@ -334,22 +338,9 @@ def validate_voucher():
     if v: return flask_jsonify({'valid': True, 'discount_percent': v.discount_percent, 'discount_amount': v.discount_amount})
     return flask_jsonify({'valid': False}), 404
 
-# ========== WEBHOOK + HEALTH ==========
-ptb_app = None
-
-@app.route('/')
-def health_check():
-    return Response('OK', status=200)
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), ptb_app.bot)
-    asyncio.run(ptb_app.process_update(update))
-    return Response('ok', status=200)
-
-# ========== MAIN ==========
+# ========== ផ្នែកថ្មី៖ ចាប់ផ្ដើម Bot ជាមួយ Polling ==========
 if __name__ == '__main__':
-    # init PTB
+    # បង្កើត PTB Application
     ptb_app = Application.builder().token(BOT_TOKEN).build()
     ptb_app.add_handler(CommandHandler("start", start))
     ptb_app.add_handler(CommandHandler("admin", admin_command))
@@ -358,17 +349,12 @@ if __name__ == '__main__':
     ptb_app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     ptb_app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
 
-    async def _init_and_set_webhook():
-        await ptb_app.initialize()
-        render_url = os.environ.get('RENDER_EXTERNAL_URL')
-        if render_url:
-            await ptb_app.bot.delete_webhook()
-            await ptb_app.bot.set_webhook(url=f"{render_url}/webhook")
-            print(f"Webhook set to: {render_url}/webhook")
-        else:
-            print("RENDER_EXTERNAL_URL not set, webhook not configured.")
+    # រត់ Flask API ក្នុង thread បន្ទាប់
+    import threading
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)), debug=False))
+    flask_thread.daemon = True
+    flask_thread.start()
 
-    asyncio.run(_init_and_set_webhook())
-
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # រត់ Bot polling
+    print("Bot polling started...")
+    ptb_app.run_polling()
