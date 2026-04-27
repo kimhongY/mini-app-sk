@@ -1,16 +1,15 @@
 import sys
 import os
 import json
-import threading
+import asyncio
 from datetime import datetime
 from flask import Flask, request, Response, jsonify as flask_jsonify
 from dotenv import load_dotenv
 from telegram import Update, LabeledPrice, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, PreCheckoutQueryHandler, CallbackQueryHandler
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Enum, func, text
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Enum, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.exc import OperationalError
 import enum
 
 # ========== HARDCODED SETTINGS ==========
@@ -92,15 +91,7 @@ class Review(Base):
     is_verified = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Retry loop for database creation
-for i in range(5):
-    try:
-        Base.metadata.create_all(engine)
-        break
-    except OperationalError:
-        if i == 4:
-            raise
-        time.sleep(2)
+Base.metadata.create_all(engine)
 
 def get_db():
     db = SessionLocal()
@@ -232,30 +223,10 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("🛍️ *Commands*\n/start - Open shop\n/admin - Admin panel", parse_mode='Markdown')
 
-# ========== FLASK APP WITH WEBHOOK ==========
+# ========== FLASK APP ==========
 app = Flask(__name__)
 
-ptb_app = Application.builder().token(BOT_TOKEN).build()
-ptb_app.add_handler(CommandHandler("start", start))
-ptb_app.add_handler(CommandHandler("admin", admin_command))
-ptb_app.add_handler(CallbackQueryHandler(help_callback, pattern="help"))
-ptb_app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data))
-ptb_app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-ptb_app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
-
-@app.route('/')
-def health_check():
-    return Response('OK', status=200)
-
-@app.route('/webhook', methods=['POST'])
-async def webhook():
-    if request.method == 'POST':
-        update = Update.de_json(request.get_json(force=True), ptb_app.bot)
-        # ដំណើរការ update ភ្លាមៗ
-        await ptb_app.process_update(update)
-    return Response('ok', status=200)
-    
-# ========== API ROUTES (សម្រាប់ Frontend) ==========
+# ========== API ROUTES ==========
 @app.route('/api/products', methods=['GET'])
 def get_products():
     db = next(get_db())
@@ -363,38 +334,41 @@ def validate_voucher():
     if v: return flask_jsonify({'valid': True, 'discount_percent': v.discount_percent, 'discount_amount': v.discount_amount})
     return flask_jsonify({'valid': False}), 404
 
-# ========== STARTUP ==========
-def set_webhook():
-    # រង់ចាំឲ្យ bot ត្រៀមខ្លួនជាស្រេច
-    import asyncio
-    async def _set():
+# ========== WEBHOOK + HEALTH ==========
+ptb_app = None
+
+@app.route('/')
+def health_check():
+    return Response('OK', status=200)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), ptb_app.bot)
+    asyncio.run(ptb_app.process_update(update))
+    return Response('ok', status=200)
+
+# ========== MAIN ==========
+if __name__ == '__main__':
+    # init PTB
+    ptb_app = Application.builder().token(BOT_TOKEN).build()
+    ptb_app.add_handler(CommandHandler("start", start))
+    ptb_app.add_handler(CommandHandler("admin", admin_command))
+    ptb_app.add_handler(CallbackQueryHandler(help_callback, pattern="help"))
+    ptb_app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data))
+    ptb_app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    ptb_app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
+
+    async def _init_and_set_webhook():
         await ptb_app.initialize()
         render_url = os.environ.get('RENDER_EXTERNAL_URL')
         if render_url:
-            webhook_url = f"{render_url}/webhook"
             await ptb_app.bot.delete_webhook()
-            await ptb_app.bot.set_webhook(url=webhook_url)
-            print(f"Webhook set to: {webhook_url}")
-    asyncio.run(_set())
-
-if __name__ == '__main__':
-    # ត្រូវការ initialize PTB application មុននឹង Flask រត់
-    import asyncio
-    asyncio.run(ptb_app.initialize())
-    
-    # កំណត់ webhook បន្ទាប់ពី initialize
-    def set_webhook():
-        render_url = os.environ.get('RENDER_EXTERNAL_URL')
-        if render_url:
-            import requests
-            webhook_url = f"{render_url}/webhook"
-            ptb_app.bot.delete_webhook()
-            ptb_app.bot.set_webhook(url=webhook_url)
-            print(f"Webhook set to: {webhook_url}")
+            await ptb_app.bot.set_webhook(url=f"{render_url}/webhook")
+            print(f"Webhook set to: {render_url}/webhook")
         else:
             print("RENDER_EXTERNAL_URL not set, webhook not configured.")
-    
-    threading.Thread(target=set_webhook).start()
-    
+
+    asyncio.run(_init_and_set_webhook())
+
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
