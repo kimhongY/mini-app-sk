@@ -1,7 +1,6 @@
-import sys, os, json, asyncio
+import sys, os, json, asyncio, threading
 from datetime import datetime
 from flask import Flask, request, Response, jsonify as flask_jsonify
-from dotenv import load_dotenv
 from telegram import Update, LabeledPrice, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, PreCheckoutQueryHandler, CallbackQueryHandler
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Enum, func
@@ -9,7 +8,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import enum
 
-# ==================== SETTINGS ====================
+# ========== HARDCODED SETTINGS ==========
 BOT_TOKEN = "8670790936:AAGrR4VaeKXIrB5fTE8vb5LUPSw2oU6keqk"
 ADMIN_USER_ID = 661892014
 WEBAPP_URL = "https://kimhongy.github.io/mini-app-sk/"
@@ -19,6 +18,7 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
+# ========== MODELS ==========
 class OrderStatus(enum.Enum):
     PENDING = "pending"
     PAID = "paid"
@@ -96,6 +96,7 @@ def get_db():
     finally:
         db.close()
 
+# ========== SERVICES ==========
 class InventoryManager:
     @staticmethod
     def check_stock(product_id, quantity_needed):
@@ -149,7 +150,7 @@ class NotificationService:
         msg = messages.get(new_status, f'Order #{order.id} status: {new_status}')
         await NotificationService.send_notification(context=context, user_id=order.user_id, title=f'Order #{order.id}', message=msg, ntype='order_update')
 
-# ==================== BOT HANDLERS ====================
+# ========== BOT HANDLERS ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🛍️ Open Shop", web_app=WebAppInfo(url=WEBAPP_URL))],
@@ -217,7 +218,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("🛍️ *Commands*\n/start - Open shop\n/admin - Admin panel", parse_mode='Markdown')
 
-# ==================== FLASK APP & API ROUTES ====================
+# ========== FLASK APP & API ROUTES ==========
 app = Flask(__name__)
 
 @app.route('/')
@@ -342,7 +343,7 @@ def validate_voucher():
     if v: return flask_jsonify({'valid': True, 'discount_percent': v.discount_percent, 'discount_amount': v.discount_amount})
     return flask_jsonify({'valid': False}), 404
 
-# ==================== WEBHOOK SETUP ====================
+# ========== WEBHOOK ==========
 ptb_app = Application.builder().token(BOT_TOKEN).build()
 ptb_app.add_handler(CommandHandler("start", start))
 ptb_app.add_handler(CommandHandler("admin", admin_command))
@@ -351,10 +352,27 @@ ptb_app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_da
 ptb_app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
 ptb_app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
 
+async def _startup():
+    await ptb_app.initialize()
+    render_url = os.environ.get('RENDER_EXTERNAL_URL')
+    if render_url:
+        await ptb_app.bot.delete_webhook()
+        await ptb_app.bot.set_webhook(url=f"{render_url}/webhook")
+        print(f"Webhook set to {render_url}/webhook")
+
+# រត់ startup ក្នុង event loop ដាច់ដោយឡែក
+def run_startup():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(_startup())
+
+threading.Thread(target=run_startup).start()
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     update = Update.de_json(request.get_json(force=True), ptb_app.bot)
-    asyncio.run(ptb_app.process_update(update))
+    # ដាក់ update ចូលក្នុង update_queue សម្រាប់ដំណើរការ
+    ptb_app.update_queue.put_nowait(update)
     return Response('ok', status=200)
 
 if __name__ == '__main__':
