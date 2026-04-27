@@ -198,36 +198,18 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.message.reply_text("🛍️ *Commands*\n/start - Open shop\n/admin - Admin panel", parse_mode='Markdown')
 
-# ========== FLASK APP ==========
+# ========== FLASK APP & API ROUTES ==========
 app = Flask(__name__)
 
-# ========== API ROUTES (ដោយគ្មានបន្ទាត់ដែលបង្កឲ្យមាន SyntaxError) ==========
 @app.route('/api/products', methods=['GET'])
 def get_products():
     db = next(get_db())
     products = db.query(Product).filter(Product.is_active == 1).all()
-    return flask_jsonify([{'id': p.id, 'name': p.name, 'price': p.price, 'stars_price': p.stars_price} for p in products])
+    return flask_jsonify([{'id': p.id, 'name': p.name, 'description': p.description, 'price': p.price, 'stars_price': p.stars_price, 'image_url': p.image_url, 'stock': p.stock, 'category': p.category, 'rating': p.rating, 'total_reviews': p.total_reviews} for p in products])
 
-@app.route('/api/products', methods=['POST'])
-def add_product():
-    db = next(get_db()); data = request.json
-    product = Product(name=data['name'], price=data['price'], stars_price=data['stars_price'])
-    db.add(product); db.commit()
-    return flask_jsonify({'message': 'Added', 'id': product.id}), 201
+# ... (រក្សារាល់ API routes ផ្សេងទៀតពីកំណែមុនរបស់អ្នក - customer/orders, reviews, vouchers)
 
-@app.route('/api/orders', methods=['GET'])
-def get_orders():
-    db = next(get_db())
-    orders = db.query(Order).order_by(Order.created_at.desc()).all()
-    return flask_jsonify([{'id': o.id, 'total_amount': o.total_amount, 'status': o.status.value} for o in orders])
-
-@app.route('/api/vouchers', methods=['GET'])
-def get_vouchers():
-    db = next(get_db())
-    vouchers = db.query(Voucher).all()
-    return flask_jsonify([{'id': v.id, 'code': v.code} for v in vouchers])
-
-# ========== WEBHOOK ==========
+# ========== WEBHOOK SETUP ==========
 ptb_app = Application.builder().token(BOT_TOKEN).build()
 ptb_app.add_handler(CommandHandler("start", start))
 ptb_app.add_handler(CommandHandler("admin", admin_command))
@@ -247,4 +229,4 @@ def webhook():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port) # <-- ការកំណត់នេះនឹងឲ្យ Render មើលឃើញ HTTP server ហើយ Health Check នឹងដំណើរការ
+    app.run(host='0.0.0.0', port=port)
